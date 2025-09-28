@@ -9,14 +9,14 @@ KubeEdge 是一个基于 Kubernetes 的云原生边缘计算框架，将容器�
 | 目录 | 主要职责 | 关键文件 |
 |------|----------|----------|
 | `cloud/` | 云端组件和控制器 | `cmd/cloudcore/`, `pkg/cloudhub/`, `pkg/edgecontroller/` |
-| `cloud/cmd/cloudcore/` | 云端核心二进制文件 | `main.go`, `cloudcore.go` |
-| `cloud/cmd/admission/` | 准入控制器 | `main.go` |
-| `cloud/cmd/controllermanager/` | 控制器管理器 | `main.go` |
+| `cloud/cmd/cloudcore/` | 云端核心二进制文件 | `cloudcore.go` |
+| `cloud/cmd/admission/` | 准入控制器 | `admission.go` |
+| `cloud/cmd/controllermanager/` | 控制器管理器 | `controllermanager.go` |
 | `cloud/pkg/cloudhub/` | WebSocket 服务器，云边通信 | `cloudhub.go`, `server.go` |
 | `cloud/pkg/edgecontroller/` | 扩展的 Kubernetes 控制器，管理边缘节点和 Pod | `controller.go` |
 | `cloud/pkg/devicecontroller/` | 设备控制器，通过 CRD 管理边缘设备 | `devicecontroller.go` |
 | `edge/` | 边缘端运行时和代理 | `cmd/edgecore/`, `pkg/edged/`, `pkg/edgehub/` |
-| `edge/cmd/edgecore/` | 边缘端核心二进制文件 | `main.go`, `edgecore.go` |
+| `edge/cmd/edgecore/` | 边缘端核心二进制文件 | `edgecore.go` |
 | `edge/pkg/edgehub/` | WebSocket 客户端，云边通信 | `edgehub.go`, `client.go` |
 | `edge/pkg/edged/` | 容器运行时代理（类似 kubelet） | `edged.go` |
 | `edge/pkg/eventbus/` | MQTT 客户端，设备通信 | `eventbus.go` |
@@ -85,8 +85,8 @@ make all BUILD_WITH_CONTAINER=false
 #### Go 直接运行
 ```bash
 # 开发调试模式
-go run cloud/cmd/cloudcore/main.go
-go run edge/cmd/edgecore/main.go
+go run cloud/cmd/cloudcore/cloudcore.go
+go run edge/cmd/edgecore/edgecore.go
 ```
 
 ## 外部依赖
@@ -149,11 +149,11 @@ go run edge/cmd/edgecore/main.go
 
 ### 第二阶段：核心组件
 3. **云端入口点**
-   - `cloud/cmd/cloudcore/main.go` - 云端主程序入口
+   - `cloud/cmd/cloudcore/cloudcore.go` - 云端主程序入口
    - `cloud/cmd/cloudcore/cloudcore.go` - 云端核心逻辑
 
 4. **边缘端入口点**
-   - `edge/cmd/edgecore/main.go` - 边缘端主程序入口
+   - `edge/cmd/edgecore/edgecore.go` - 边缘端主程序入口
    - `edge/cmd/edgecore/edgecore.go` - 边缘端核心逻辑
 
 5. **通信层**
