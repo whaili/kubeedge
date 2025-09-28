@@ -216,20 +216,20 @@ sequenceDiagram
     CC->>CH: 构造消息发送
 
     par 云边通信
-        CH->>EH: WebSocket 消息传输
-        EH->>EC: MetaManager 存储
+        CH->>EH: PodSpec 下发 (WebSocket/Quic)
+        EH->>EC: MetaManager 存储 (含离线缓存)
     and 状态上报
-        EC->>EH: 处理结果上报
+        EC->>EH: 容器状态
         EH->>CH: WebSocket 回传
         CH->>CC: 状态更新
         CC->>K8s: 更新 Pod 状态
     end
 
-    EC->>RT: 创建容器
-    RT-->>EC: 容器状态
+    EC->>RT: 调用 CRI 创建容器
+    RT-->>EC: 容器运行结果
     EC->>EH: 状态变更通知
     EH->>CH: 上报到云端
-    CH->>CC: 更新控制器
+    CH->>CC: 控制器更新
     CC->>K8s: 最终状态同步
 
     Note over User,RT: 设备数据上报流程
@@ -241,8 +241,8 @@ sequenceDiagram
 
     Dev->>MQTT: 发布设备数据
     MQTT->>EB: MQTT 消息接收
-    EB->>DT: 设备状态更新
-    DT->>EC: MetaManager 存储
+    EB->>DT: 更新设备状态
+    DT->>EC: 更新 MetaManager 缓存
     DT->>EH: 状态上报云端
     EH->>CH: WebSocket 传输
     CH->>CC: DeviceController 处理
@@ -255,8 +255,8 @@ sequenceDiagram
     participant Log as 📝 日志系统
 
     RT->>ES: 容器日志产生
-    ES->>CS: gRPC Stream 传输
-    CS->>Log: 转发到日志系统
+    ES->>CS: gRPC 双向流
+    CS->>Log: 转发到 ELK/EFK/Loki
     Log-->>User: 用户查看日志
 ```
 
@@ -357,6 +357,100 @@ graph TB
     class BeehiveCore,MessageChannel,Context framework
     class K8sAPI,WebSocketAPI,gRPCAPI,HTTPAPI,MQTTAPI interface
     class Etcd,SQLite,Memory storage
+```
+
+
+## pod创建流程
+```mermaid
+flowchart TB
+    subgraph User["👤 用户"]
+        KubeCtl["1️⃣ kubectl apply -f pod.yaml"]
+    end
+
+    subgraph K8sAPI["☸️ K8s API Server + etcd"]
+        PodObj["2️⃣ Pod 对象 (写入 etcd)"]
+    end
+
+    subgraph NativeCtrl["📦 原生控制器"]
+        RS["3️⃣ ReplicaSetController"]
+        Deploy["DeploymentController"]
+    end
+
+    subgraph Scheduler["🧩 调度器"]
+        Bind["4️⃣ 调度：依据<br/>• Node Labels<br/>• Taints/Tolerations<br/>• 资源需求"]
+    end
+
+    subgraph Cloud["☁️ CloudCore"]
+        EdgeCtrl["5️⃣ EdgeController<br/>监听边缘 Pod 事件"]
+        CloudHub["6️⃣ CloudHub<br/>转发到边缘"]
+    end
+
+    subgraph CloudNode["💻 云端节点"]
+        Kubelet["5️⃣ kubelet<br/>watch Pod"]
+        subgraph CloudRuntime["🐳 容器运行环境"]
+            CRI["6️⃣ CRI (containerd / CRI-O)"]
+            CNI["容器网络 (CNI)"]
+            CSI["存储卷 (CSI)"]
+        end
+    end
+
+    subgraph EdgeNode["📱 边缘节点"]
+        EdgeHub["7️⃣ EdgeHub<br/>接收消息"]
+        MetaManager["8️⃣ MetaManager<br/>缓存/存储"]
+        Edged["9️⃣ Edged<br/>容器代理 (kubelet 替代)"]
+        subgraph EdgeRuntime["🐳 容器运行环境"]
+            EdgeCRI["🔟 CRI (containerd / CRI-O)"]
+            EdgeCNI["容器网络 (CNI)"]
+            EdgeCSI["存储卷 (CSI)"]
+        end
+    end
+
+    %% 用户到 K8s
+    KubeCtl --> K8sAPI
+    K8sAPI --> PodObj
+
+    %% 控制器与调度器
+    PodObj --> NativeCtrl
+    NativeCtrl --> Scheduler
+    Scheduler -->|绑定到 CloudNode| PodObj
+    Scheduler -->|绑定到 EdgeNode| PodObj
+
+    %% 云端节点路径
+    PodObj -->|NodeName=CloudNode| Kubelet
+    Kubelet --> CRI
+    Kubelet --> CNI
+    Kubelet --> CSI
+    CRI -->|"运行 Pod"| CloudNode
+
+    %% 边缘节点路径
+    PodObj -->|NodeName=EdgeNode| EdgeCtrl
+    EdgeCtrl --> CloudHub
+    CloudHub -.->|"WebSocket/Quic"| EdgeHub
+    EdgeHub --> MetaManager --> Edged
+    Edged --> EdgeCRI
+    Edged --> EdgeCNI
+    Edged --> EdgeCSI
+    EdgeCRI -->|"运行 Pod"| EdgeNode
+
+    %% 样式
+    classDef user fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef apiserver fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef ctrl fill:#ede7f6,stroke:#7b1fa2,stroke-width:2px
+    classDef sched fill:#f1f8e9,stroke:#388e3c,stroke-width:2px
+    classDef cloud fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    classDef cloudnode fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef edgenode fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+    classDef runtime fill:#fff8e1,stroke:#fbc02d,stroke-width:2px
+
+    class User user
+    class K8sAPI,PodObj apiserver
+    class RS,Deploy ctrl
+    class Scheduler,Bind sched
+    class Cloud,EdgeCtrl,CloudHub cloud
+    class CloudNode,Kubelet cloudnode
+    class CRI,CNI,CSI runtime
+    class EdgeNode,EdgeHub,MetaManager,Edged edgenode
+    class EdgeCRI,EdgeCNI,EdgeCSI runtime
 ```
 
 ## 外部依赖
